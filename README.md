@@ -251,6 +251,8 @@ Environment의 Secret에 봇 토큰을 넣고, 채널 ID는 저장소의
 
 봇 토큰은 README, `config.toml`, 커밋, Actions 로그에 남기지 않는다. 설정 후
 Actions에서 **Test Discord Connection** 워크플로를 실행해 연결을 확인한다.
+Environment Secret을 `DISCORDBOT`이라는 이름으로 등록해도 사용할 수 있다.
+두 이름이 모두 있으면 `DISCORD_BOT_TOKEN`을 우선 사용한다.
 
 기본 상태에서는 **Tests**만 자동 실행된다. 봇 토큰, 채널 ID, 백업 암호화 키를
 등록한 뒤 `TRACKER_ENABLED=true`로 설정하면 정기 수집과 Discord 알림을 시작한다.

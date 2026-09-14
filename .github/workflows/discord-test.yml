@@ -13,7 +13,7 @@ jobs:
     timeout-minutes: 5
     env:
       PYTHONPATH: src
-      DISCORD_BOT_TOKEN: ${{ secrets.DISCORD_BOT_TOKEN }}
+      DISCORD_BOT_TOKEN: ${{ secrets.DISCORD_BOT_TOKEN || secrets.DISCORDBOT }}
       DISCORD_CHANNEL_ID: ${{ vars.DISCORD_CHANNEL_ID }}
 
     steps:
