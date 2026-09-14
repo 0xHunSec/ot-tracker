@@ -13,7 +13,7 @@ jobs:
     timeout-minutes: 5
     env:
       CRONJOB_API_KEY: ${{ secrets.CRONJOB_API_KEY }}
-      SCHEDULER_GITHUB_TOKEN: ${{ secrets.SCHEDULER_GITHUB_TOKEN }}
+      SCHEDULER_GITHUB_TOKEN: ${{ secrets.SCHEDULER_GITHUB_TOKEN || secrets.SCHEDULE_GITHUB_TOKEN }}
       CRON_JOB_ID: "8364710"
       OLD_URL: https://api.github.com/repos/team-allied-security/ot-tracker/actions/workflows/track.yml/dispatches
       NEW_URL: https://api.github.com/repos/0xHunSec/ot-tracker/actions/workflows/track.yml/dispatches
