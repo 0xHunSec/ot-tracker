@@ -1,0 +1,22 @@
+[build-system]
+requires = ["setuptools>=69"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "chrome-ot-tracker"
+version = "0.1.0"
+description = "Evidence-preserving Chrome Origin Trial and Chromium change tracker"
+readme = "README.md"
+requires-python = ">=3.11"
+license = {text = "MIT"}
+authors = [{name = "hunsec"}]
+dependencies = []
+
+[project.scripts]
+ot-tracker = "ot_tracker.cli:main"
+
+[tool.setuptools]
+package-dir = {"" = "src"}
+
+[tool.setuptools.packages.find]
+where = ["src"]

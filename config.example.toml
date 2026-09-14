@@ -1,0 +1,80 @@
+# Copy this file to config.toml. Relative paths resolve from the config file.
+[tracker]
+database = "var/ot-tracker.sqlite3"
+reports_dir = "reports"
+recent_event_days = 14
+
+[http]
+timeout_seconds = 30
+retries = 3
+user_agent = "chrome-ot-tracker/0.1"
+
+[chromestatus]
+base_url = "https://chromestatus.com/api/v0"
+feature_fetch_workers = 8
+
+[chromium]
+gitiles_base_url = "https://chromium.googlesource.com/chromium/src"
+ref = "refs/heads/main"
+chromiumdash_base_url = "https://chromiumdash.appspot.com"
+release_channels = ["Stable", "Beta"]
+release_platform = "Linux"
+source_files = [
+  "third_party/blink/renderer/platform/runtime_enabled_features.json5",
+  "third_party/blink/common/origin_trials/manual_completion_origin_trial_features.cc",
+  "third_party/blink/common/origin_trials/navigation_origin_trial_features.cc",
+  "third_party/blink/common/origin_trials/persistent_origin_trials.cc",
+]
+
+[gerrit]
+enabled = true
+base_url = "https://chromium-review.googlesource.com"
+lookback_hours = 24
+overlap_minutes = 15
+page_size = 200
+max_changes = 5000
+# Open CLs remain in the database at low severity; Discord alerts start after merge.
+open_changes_enabled = true
+patch_details_enabled = true
+max_patch_bytes = 2000000
+max_detailed_changes = 20
+auto_path_min_score = 80
+
+[discord]
+enabled = true
+# Use "bot" for an installed Discord bot or "webhook" for an incoming webhook.
+transport = "bot"
+# Secrets belong in an environment variable or a chmod-600 token file, never TOML.
+bot_token_env = "DISCORD_BOT_TOKEN"
+bot_token_file = "~/.config/ot-tracker/discord-bot.env"
+channel_id_env = "DISCORD_CHANNEL_ID"
+channel_id = "123456789012345678"
+# Used only when transport = "webhook".
+webhook_env = "OT_TRACKER_DISCORD_WEBHOOK_URL"
+username = "Chrome OT Tracker"
+min_severity = "medium"
+# Merge implementation CLs into fixed KST windows (00–06, 06–12, 12–18, 18–24).
+implementation_digest_hours = 6
+batch_size = 8
+max_batches_per_run = 10
+retries = 3
+
+[health]
+heartbeat_enabled = true
+heartbeat_interval_hours = 24
+
+[candidates]
+ignore_trial_names = [
+  "Frobulate*",
+  "OriginTrialsSampleAPI*",
+  "TestFeature*OriginTrial*",
+]
+
+# Table names must equal the Chromium trial name. Alias monitoring starts
+# automatically, but active trials without paths emit a coverage warning.
+[targets.ExampleTrialName]
+aliases = ["Example runtime symbol", "Example API name"]
+paths = [
+  "third_party/blink/renderer/modules/example/",
+  "content/browser/example/*.cc",
+]

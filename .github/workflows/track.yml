@@ -1,0 +1,139 @@
+name: Track Chrome Origin Trials
+
+on:
+  schedule:
+    # Avoid the top of the hour, where GitHub documents higher scheduler load.
+    - cron: "17,47 * * * *"
+  workflow_dispatch:
+  repository_dispatch:
+    types: [track-origin-trials]
+  workflow_call:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: chrome-ot-tracker
+  cancel-in-progress: false
+
+jobs:
+  track:
+    if: ${{ vars.TRACKER_ENABLED == 'true' }}
+    runs-on: ubuntu-latest
+    environment: DISCORD_BOT_TOKEN
+    timeout-minutes: 15
+    env:
+      PYTHONPATH: src
+      DISCORD_BOT_TOKEN: ${{ secrets.DISCORD_BOT_TOKEN }}
+      DISCORD_CHANNEL_ID: ${{ vars.DISCORD_CHANNEL_ID }}
+      HEALTHCHECKS_PING_URL: ${{ secrets.HEALTHCHECKS_PING_URL }}
+      GH_TOKEN: ${{ github.token }}
+      STATE_ENCRYPTION_KEY: ${{ secrets.STATE_ENCRYPTION_KEY }}
+
+    steps:
+      - name: Check tracker configuration
+        shell: bash
+        run: |
+          for setting in DISCORD_BOT_TOKEN DISCORD_CHANNEL_ID STATE_ENCRYPTION_KEY; do
+            if [[ -z "${!setting}" ]]; then
+              echo "::error::Configure ${setting} before enabling the tracker."
+              exit 1
+            fi
+          done
+
+      - name: Signal dead-man start
+        if: ${{ env.HEALTHCHECKS_PING_URL != '' }}
+        continue-on-error: true
+        shell: bash
+        run: |
+          ping_url="${HEALTHCHECKS_PING_URL%/}"
+          curl --fail --silent --show-error \
+            --max-time 10 \
+            --retry 3 \
+            --retry-all-errors \
+            --output /dev/null \
+            "${ping_url}/start"
+
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7
+        with:
+          python-version: "3.12"
+
+      - name: Restore durable tracker state
+        shell: bash
+        run: bash scripts/restore_state.sh
+
+      - name: Run unit tests
+        run: python -m unittest discover -s tests -v
+
+      - name: Collect, diff, and notify Discord
+        id: sync
+        continue-on-error: true
+        run: python -m ot_tracker --config config.toml sync
+
+      - name: Persist durable tracker state
+        if: ${{ always() && hashFiles('var/ot-tracker.sqlite3') != '' }}
+        shell: bash
+        run: bash scripts/persist_state.sh
+
+      - name: Preserve sync failure status
+        if: ${{ steps.sync.outcome == 'failure' }}
+        run: exit 1
+
+      - name: Signal dead-man success
+        if: ${{ success() && env.HEALTHCHECKS_PING_URL != '' }}
+        continue-on-error: true
+        shell: bash
+        run: |
+          ping_url="${HEALTHCHECKS_PING_URL%/}"
+          curl --fail --silent --show-error \
+            --max-time 10 \
+            --retry 3 \
+            --retry-all-errors \
+            --output /dev/null \
+            "${ping_url}"
+
+      - name: Signal dead-man failure
+        if: ${{ failure() && env.HEALTHCHECKS_PING_URL != '' }}
+        continue-on-error: true
+        shell: bash
+        run: |
+          ping_url="${HEALTHCHECKS_PING_URL%/}"
+          curl --fail --silent --show-error \
+            --max-time 10 \
+            --retry 3 \
+            --retry-all-errors \
+            --output /dev/null \
+            "${ping_url}/fail"
+
+      - name: Alert Discord on workflow failure
+        if: ${{ failure() }}
+        shell: bash
+        run: |
+          if [[ -z "${DISCORD_BOT_TOKEN}" || -z "${DISCORD_CHANNEL_ID}" ]]; then
+            echo "Discord failure alert skipped because credentials are unavailable."
+            exit 0
+          fi
+          run_url="https://github.com/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
+          payload="$(jq -n \
+            --arg repository "${GITHUB_REPOSITORY}" \
+            --arg run_url "${run_url}" \
+            --arg run_number "${GITHUB_RUN_NUMBER}" \
+            '{
+              allowed_mentions: {parse: []},
+              embeds: [{
+                title: "🚨 Chrome OT Tracker 실행 실패",
+                description: ($repository + " workflow run #" + $run_number + "이 실패했습니다."),
+                color: 15158332,
+                fields: [{name: "확인", value: ("[GitHub Actions 로그 보기](" + $run_url + ")"), inline: false}]
+              }]
+            }')"
+          curl --fail --silent --show-error \
+            --retry 3 \
+            --retry-all-errors \
+            --output /dev/null \
+            --header "Authorization: Bot ${DISCORD_BOT_TOKEN}" \
+            --header "Content-Type: application/json" \
+            --data "${payload}" \
+            "https://discord.com/api/v10/channels/${DISCORD_CHANNEL_ID}/messages"

@@ -1,0 +1,11 @@
+[Unit]
+Description=Run Chrome Origin Trial tracker hourly
+
+[Timer]
+OnCalendar=hourly
+RandomizedDelaySec=5m
+Persistent=true
+Unit=ot-tracker.service
+
+[Install]
+WantedBy=timers.target

@@ -1,0 +1,324 @@
+[tracker]
+database = "var/ot-tracker.sqlite3"
+reports_dir = "reports"
+recent_event_days = 14
+
+[http]
+timeout_seconds = 30
+retries = 3
+user_agent = "chrome-ot-tracker/0.1 (+local research monitor)"
+
+[chromestatus]
+base_url = "https://chromestatus.com/api/v0"
+feature_fetch_workers = 8
+
+[chromium]
+gitiles_base_url = "https://chromium.googlesource.com/chromium/src"
+ref = "refs/heads/main"
+chromiumdash_base_url = "https://chromiumdash.appspot.com"
+release_channels = ["Stable", "Beta"]
+release_platform = "Linux"
+source_files = [
+  "third_party/blink/renderer/platform/runtime_enabled_features.json5",
+  "third_party/blink/common/origin_trials/manual_completion_origin_trial_features.cc",
+  "third_party/blink/common/origin_trials/navigation_origin_trial_features.cc",
+  "third_party/blink/common/origin_trials/persistent_origin_trials.cc",
+]
+
+[gerrit]
+enabled = true
+base_url = "https://chromium-review.googlesource.com"
+lookback_hours = 24
+overlap_minutes = 15
+page_size = 200
+max_changes = 5000
+# Open CLs remain in the database at low severity; Discord alerts start after merge.
+open_changes_enabled = true
+patch_details_enabled = true
+max_patch_bytes = 2000000
+max_detailed_changes = 20
+auto_path_min_score = 80
+
+[discord]
+enabled = true
+transport = "bot"
+webhook_env = "OT_TRACKER_DISCORD_WEBHOOK_URL"
+bot_token_env = "DISCORD_BOT_TOKEN"
+bot_token_file = "~/.config/ot-tracker/discord-bot.env"
+channel_id_env = "DISCORD_CHANNEL_ID"
+channel_id = ""
+username = "Chrome OT Tracker"
+min_severity = "medium"
+implementation_digest_hours = 6
+batch_size = 8
+max_batches_per_run = 10
+retries = 3
+
+[health]
+heartbeat_enabled = true
+heartbeat_interval_hours = 24
+
+[candidates]
+ignore_trial_names = [
+  "Frobulate*",
+  "OriginTrialsSampleAPI*",
+  "TestFeature*OriginTrial*",
+  "ForceTouchEventFeatureDetectionForInspector",
+]
+
+# Alias matching applies automatically to every active trial name and its
+# RuntimeEnabledFeature names. These curated paths are backed by current source
+# references and feature-specific merged CLs. They close the blind spot where a
+# later CL changes implementation code without repeating the trial name.
+[targets.WebCryptoAdditionalAlgorithms202606]
+aliases = ["Additional WebCrypto Algorithms", "WebCryptoPQC", "ML-DSA", "ML-KEM", "ChaCha20-Poly1305"]
+paths = [
+  "third_party/blink/renderer/modules/crypto/",
+]
+
+[targets.AutofillEvent]
+aliases = ["Autofill Event"]
+paths = [
+  "third_party/blink/renderer/core/html/forms/autofill_event.",
+]
+
+[targets.ConnectionAllowlist]
+aliases = ["Connection Allowlist", "Connection-Allowlist", "Content-Allowlist"]
+paths = [
+  "services/network/public/cpp/connection_allowlist",
+  "services/network/public/mojom/connection_allowlist",
+  "content/browser/connection_allowlist",
+  "content/browser/loader/connection_allowlist",
+  "third_party/blink/renderer/core/frame/connection_allowlist",
+]
+
+[targets.ContainerTiming]
+aliases = ["Container Timing"]
+paths = [
+  "third_party/blink/renderer/core/paint/timing/container_timing",
+  "third_party/blink/renderer/core/timing/performance_container_timing",
+]
+
+[targets.CpuPerformance]
+aliases = ["CPU Performance API", "cpuPerformance"]
+paths = [
+  "third_party/blink/renderer/core/frame/navigator_cpu_performance",
+  "third_party/blink/public/mojom/cpu_performance.mojom",
+  "content/browser/cpu_performance/",
+]
+
+[targets.DeclarativeCSSModules]
+aliases = ["Declarative CSS Module", "CSS Module Scripts"]
+paths = [
+  "third_party/blink/renderer/core/script/value_wrapper_synthetic_module_script.cc",
+  "third_party/blink/renderer/core/script/modulator_impl_base.cc",
+  "third_party/blink/renderer/core/dom/shadow_root.",
+  "third_party/blink/renderer/core/dom/tree_scope.",
+]
+
+[targets.DeclarativePerformanceObserver]
+aliases = ["Declarative Performance Observer"]
+paths = [
+  "content/browser/declarative_performance_observer/",
+  "content/browser/network/declarative_performance_observer",
+  "services/network/public/cpp/declarative_performance_observer",
+  "services/network/public/mojom/declarative_performance_observer.mojom",
+]
+
+[targets.WebIdentityDigitalCredentialsCreation]
+aliases = ["Digital Credentials", "Digital Identity Credential"]
+paths = [
+  "third_party/blink/renderer/modules/credentialmanagement/digital_identity_",
+  "content/browser/digital_credentials/",
+  "content/browser/webid/digital_credentials/",
+  "chrome/browser/digital_credentials/",
+  "third_party/blink/public/mojom/webid/digital_identity_request.mojom",
+]
+
+[targets.EmailVerificationProtocol]
+aliases = ["Email Verification Protocol", "EmailVerificationStatusIndicator"]
+paths = [
+  "components/autofill/content/browser/integrators/email_verifier/",
+  "content/browser/webid/delegation/email_verification",
+  "content/browser/webid/delegation/email_verifier",
+  "content/public/browser/webid/email_verifier",
+  "chrome/browser/ui/autofill/email_verifier/",
+]
+
+[targets.ExtendedTextMetrics]
+aliases = ["Enhanced Canvas TextMetrics"]
+paths = [
+  "third_party/blink/renderer/core/html/canvas/text_metrics.",
+]
+
+[targets.BlockingFocusWithoutUserActivation]
+aliases = ["focus-without-user-activation", "focus without user activation"]
+paths = [
+  "third_party/blink/renderer/core/page/focus_controller.",
+  "third_party/blink/renderer/core/dom/focus_params.h",
+  "third_party/blink/renderer/core/execution_context/security_context_init.cc",
+]
+
+[targets.GamepadRawInputChangeEvent]
+aliases = ["Gamepad Raw Input Event"]
+paths = [
+  "third_party/blink/renderer/modules/gamepad/",
+  "device/gamepad/",
+]
+
+[targets.InstallElement]
+aliases = ["HTML Install Element"]
+paths = [
+  "third_party/blink/renderer/core/html/html_install_element",
+  "chrome/browser/web_applications/web_install_service_impl",
+  "content/browser/permissions/embedded_permission_control_checker",
+]
+
+[targets.HTMLInCanvas]
+aliases = ["HTML-in-canvas", "ElementImage", "CanvasDrawElement"]
+paths = [
+  "third_party/blink/renderer/modules/canvas/canvas2d/",
+  "third_party/blink/renderer/core/html/canvas/",
+  "third_party/blink/renderer/core/layout/layout_html_canvas",
+]
+
+[targets.JSSelfProfilingMarkers]
+aliases = ["JS Self-Profiling Markers", "Profiler Markers"]
+paths = [
+  "third_party/blink/renderer/core/timing/profiler",
+  "third_party/blink/renderer/bindings/core/v8/profiler_trace_builder",
+]
+
+[targets.LocalNetworkAccessNonSecureContextAllowed]
+aliases = ["Local Network Access", "Private Network Access", "LNA"]
+paths = [
+  "content/browser/renderer_host/local_network_access",
+  "content/browser/renderer_host/private_network_access",
+  "services/network/private_network_access",
+  "services/network/public/cpp/private_network_access",
+  "services/network/public/cpp/ip_address_space_util",
+  "chrome/browser/local_network_access/",
+  "chrome/browser/private_network_access/",
+  "components/permissions/contexts/local_network",
+  "components/permissions/contexts/loopback_network",
+]
+
+[targets.LongAnimationFrameStyleDuration]
+aliases = ["Long Animation Frames"]
+paths = [
+  "third_party/blink/renderer/core/frame/animation_frame_timing_monitor",
+  "third_party/blink/renderer/core/timing/animation_frame_timing_info",
+  "third_party/blink/renderer/core/timing/performance_long_animation_frame_timing",
+  "third_party/blink/renderer/core/timing/performance_script_timing",
+]
+
+[targets.PrefetchAndPrerenderActivationBeacon]
+aliases = ["Prefetch and Prerender Activation Beacon", "activation beacon"]
+paths = [
+  "content/browser/preloading/preload_activation_report_utils",
+  "content/browser/preloading/prerender/prerender_host.",
+]
+
+[targets.PrerenderActivationByFormSubmission]
+aliases = ["Prerender activation by form submission"]
+paths = [
+  "content/browser/preloading/prerenderer_impl.",
+]
+
+[targets.Prerender2CrossOriginIframes]
+aliases = ["Prerendering cross-origin iframes"]
+paths = [
+  "content/browser/preloading/prerender/prerender_subframe_navigation_throttle",
+  "content/browser/preloading/prerender/prerender_host.",
+  "content/browser/preloading/speculation_rules/speculation_host_impl.",
+  "third_party/blink/renderer/core/speculation_rules/stub_speculation_host.",
+  "third_party/blink/renderer/core/speculation_rules/document_speculation_rules.",
+]
+
+[targets.PrerenderUntilScript]
+aliases = ["Prerender Until Script"]
+paths = [
+  "content/browser/preloading/prerender/devtools_prerender_attempt",
+  "content/browser/devtools/devtools_preload_storage",
+  "content/browser/devtools/protocol/preload_handler",
+  "third_party/blink/renderer/core/inspector/inspector_preload_agent",
+]
+
+[targets.AIPromptAPIParams]
+aliases = ["Prompt API Sampling Parameters"]
+paths = [
+  "third_party/blink/renderer/modules/ai/language_model",
+  "third_party/blink/renderer/modules/ai/ai_utils.",
+]
+
+[targets.SpeculationRulesModerateViewportHeuristicsControl]
+aliases = ["moderate viewport heuristics", "viewport heuristics"]
+paths = [
+  "third_party/blink/renderer/core/loader/anchor_element_interaction_tracker",
+  "third_party/blink/renderer/core/speculation_rules/document_speculation_rules.",
+  "third_party/blink/renderer/core/speculation_rules/speculation_rule_set.",
+  "content/browser/preloading/anchor_element_interaction_host_impl.",
+  "content/browser/preloading/preloading_decider.",
+]
+
+[targets.SpeculationMeasurement]
+aliases = ["Speculative Load measurement"]
+paths = [
+  "third_party/blink/renderer/core/timing/preload_data.",
+  "third_party/blink/renderer/core/timing/preconnect_data.",
+  "third_party/blink/renderer/core/timing/speculation_data.idl",
+  "content/browser/loader/navigation_early_hints_manager.",
+]
+
+[targets.UserMediaElement]
+aliases = ["UserMediaElement", "UserMediaElementLegacy"]
+paths = [
+  "third_party/blink/renderer/core/html/html_user_media_element.",
+  "third_party/blink/renderer/core/html/html_permission_element.",
+]
+
+[targets.WebAssemblyCustomDescriptorsV2]
+aliases = ["WebAssembly Custom Descriptors V2", "Wasm custom descriptors v2"]
+paths = [
+  "third_party/blink/renderer/bindings/core/v8/v8_initializer.cc",
+  "third_party/blink/renderer/bindings/core/v8/use_counter_callback.cc",
+]
+
+[targets.WebAudioConfigurableRenderQuantum]
+aliases = ["Configurable render quantum", "renderSizeHint"]
+paths = [
+  "third_party/blink/renderer/modules/webaudio/",
+  "third_party/blink/renderer/platform/audio/",
+]
+
+[targets.WebMCP]
+aliases = ["Web Model Context Protocol"]
+paths = [
+  "third_party/blink/renderer/core/script_tools/",
+  "third_party/blink/renderer/core/html/forms/form_mcp_",
+  "content/browser/renderer_host/model_context_user_data",
+  "content/browser/devtools/protocol/webmcp",
+  "chrome/browser/devtools/protocol/webmcp",
+]
+
+[targets.WebRtcSctpSnap]
+aliases = ["SCTP SNAP", "SCTP Negotiation Acceleration Protocol"]
+paths = [
+  "third_party/blink/renderer/modules/peerconnection/rtc_peer_connection.cc",
+]
+
+[targets.RTCDiagnosticLogging]
+aliases = ["RTC Diagnostic Logging", "RTCLogging"]
+paths = [
+  "chrome/browser/media/webrtc/rtc_diagnostic_logging",
+  "chrome/browser/media/webrtc/webrtc_logging_controller",
+  "chrome/browser/media/webrtc/webrtc_event_log_",
+  "chrome/browser/media/webrtc/webrtc_log_uploader",
+]
+
+[targets.XSLT]
+aliases = ["XSLT deprecation"]
+paths = [
+  "third_party/blink/renderer/core/xml/",
+  "third_party/libxslt/",
+]
