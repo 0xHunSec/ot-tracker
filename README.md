@@ -181,9 +181,15 @@ Discord 알림 대상이 된다.
 |---|---|
 | [Chrome Status](https://chromestatus.com/) `/api/v0/origintrials` | 공식 OT 목록, 상태, milestone, trial code, 기본 정보 |
 | Chrome Status `/api/v0/features/{id}` | 활성 OT의 owner, component, 문서, 표준화 신호, 플랫폼별 OT stage |
-| [Chromium Gitiles](https://chromium.googlesource.com/chromium/src/) | `main`의 RuntimeEnabledFeature OT 선언과 특수 OT 소스 |
+| [Chromium GitHub 공식 미러](https://github.com/chromium/chromium), [Gitiles](https://chromium.googlesource.com/chromium/src/) | `main`의 RuntimeEnabledFeature OT 선언과 특수 OT 소스 |
 | ChromiumDash | Linux Stable·Beta 최신 release revision |
 | [Chromium Gerrit](https://chromium-review.googlesource.com/) | 열린 CL, patchset, 병합·폐기 상태, 변경 파일, 실제 patch |
+
+`main` 커밋 SHA는 GitHub 공식 미러에서 읽고, 수집 파일 전체를 같은 SHA로 고정한다.
+미러의 ref 조회가 실패하면 Gitiles를 사용한다. 파일 조회는 먼저 선택한 출처를
+시도한 뒤 다른 출처로 재시도한다. Stable·Beta SHA는 계속 ChromiumDash에서
+받으며, Gitiles 파일 조회가 실패하면 같은 SHA의 공식 미러 파일을 사용한다.
+두 출처가 모두 실패한 파일은 정상 수집으로 표시하지 않고 `partial` 상태로 남긴다.
 
 공식 OT 연동 방식은
 [Chromium Origin Trials integration guide](https://chromium.googlesource.com/chromium/src/+/HEAD/docs/origin_trials_integration.md)를 따른다.

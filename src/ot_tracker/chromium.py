@@ -2,8 +2,10 @@ from __future__ import annotations
 
 import ast
 import base64
+import binascii
 import fnmatch
 import hashlib
+import os
 import re
 import urllib.parse
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -28,6 +30,8 @@ NAVIGATION_FEATURES_PATH = (
 PERSISTENT_TRIALS_PATH = (
     "third_party/blink/common/origin_trials/persistent_origin_trials.cc"
 )
+GITHUB_MIRROR_API = "https://api.github.com/repos/chromium/chromium"
+GITHUB_MIRROR_RAW = "https://raw.githubusercontent.com/chromium/chromium"
 
 DECLARATION_KEYS = (
     "name",
@@ -327,39 +331,102 @@ class ChromiumSourceClient:
         self.config = config
         self.http = http
 
-    def fetch_revision(self, ref_name: str | None = None) -> str:
-        ref = urllib.parse.quote(ref_name or self.config.chromium_ref, safe="/")
+    def _gitiles_revision(self, ref_name: str) -> str:
+        ref = urllib.parse.quote(ref_name, safe="/")
         response = self.http.get_json(
             f"{self.config.gitiles_base_url}/+/{ref}", params={"format": "JSON"}
         )
         revision = response.get("commit") if isinstance(response, dict) else None
-        if not isinstance(revision, str) or not revision:
+        if not isinstance(revision, str) or not re.fullmatch(r"[0-9a-f]{40}", revision):
             raise FetchError("Chromium Gitiles revision response has no commit")
         return revision
 
-    def fetch_file(self, revision: str, path: str) -> str:
+    def _mirror_revision(self) -> str:
+        token = os.environ.get("GH_TOKEN") or os.environ.get("GITHUB_TOKEN")
+        headers = {"Authorization": f"Bearer {token}"} if token else None
+        response = self.http.get_json(
+            f"{GITHUB_MIRROR_API}/git/ref/heads/main", headers=headers
+        )
+        obj = response.get("object") if isinstance(response, dict) else None
+        revision = obj.get("sha") if isinstance(obj, dict) else None
+        if not isinstance(revision, str) or not re.fullmatch(r"[0-9a-f]{40}", revision):
+            raise FetchError("Chromium GitHub mirror main ref has no commit")
+        return revision
+
+    def _resolve_revision(self, ref_name: str | None = None) -> tuple[str, bool]:
+        ref = ref_name or self.config.chromium_ref
+        if ref in {"main", "refs/heads/main"}:
+            try:
+                return self._mirror_revision(), True
+            except FetchError as mirror_error:
+                try:
+                    return self._gitiles_revision(ref), False
+                except FetchError as gitiles_error:
+                    raise FetchError(
+                        f"Chromium main revision unavailable: "
+                        f"GitHub mirror: {mirror_error}; Gitiles: {gitiles_error}"
+                    ) from gitiles_error
+        return self._gitiles_revision(ref), False
+
+    def fetch_revision(self, ref_name: str | None = None) -> str:
+        revision, _ = self._resolve_revision(ref_name)
+        return revision
+
+    def _gitiles_file(self, revision: str, path: str) -> str:
         safe_path = urllib.parse.quote(path, safe="/")
         encoded = self.http.get_bytes(
             f"{self.config.gitiles_base_url}/+/{revision}/{safe_path}",
             params={"format": "TEXT"},
         )
         try:
-            return base64.b64decode(encoded).decode("utf-8")
-        except (ValueError, UnicodeDecodeError) as exc:
+            return base64.b64decode(encoded, validate=True).decode("utf-8")
+        except (binascii.Error, ValueError, UnicodeDecodeError) as exc:
             raise FetchError(f"invalid Gitiles TEXT response for {path}: {exc}") from exc
+
+    def _mirror_file(self, revision: str, path: str) -> str:
+        safe_path = urllib.parse.quote(path, safe="/")
+        raw = self.http.get_bytes(
+            f"{GITHUB_MIRROR_RAW}/{revision}/{safe_path}"
+        )
+        try:
+            return raw.decode("utf-8")
+        except UnicodeDecodeError as exc:
+            raise FetchError(f"invalid GitHub mirror text for {path}: {exc}") from exc
+
+    def fetch_file(
+        self, revision: str, path: str, *, prefer_mirror: bool = False
+    ) -> str:
+        sources = (
+            (("GitHub mirror", self._mirror_file), ("Gitiles", self._gitiles_file))
+            if prefer_mirror
+            else (("Gitiles", self._gitiles_file), ("GitHub mirror", self._mirror_file))
+        )
+        failures: list[str] = []
+        for name, fetch in sources:
+            try:
+                return fetch(revision, path)
+            except FetchError as exc:
+                failures.append(f"{name}: {exc}")
+        raise FetchError(
+            f"Chromium source file unavailable at {revision}/{path}: "
+            + "; ".join(failures)
+        )
 
     def fetch_snapshot_at(
         self,
         revision: str,
         *,
         source_files: Iterable[str] | None = None,
+        prefer_mirror: bool = False,
     ) -> ChromiumSnapshot:
         files: dict[str, str] = {}
         errors: dict[str, str] = {}
         requested_files = tuple(source_files or self.config.chromium_source_files)
         with ThreadPoolExecutor(max_workers=4, thread_name_prefix="gitiles") as executor:
             futures = {
-                executor.submit(self.fetch_file, revision, path): path
+                executor.submit(
+                    self.fetch_file, revision, path, prefer_mirror=prefer_mirror
+                ): path
                 for path in requested_files
             }
             for future in as_completed(futures):
@@ -380,7 +447,8 @@ class ChromiumSourceClient:
         )
 
     def fetch_snapshot(self) -> ChromiumSnapshot:
-        return self.fetch_snapshot_at(self.fetch_revision())
+        revision, prefer_mirror = self._resolve_revision()
+        return self.fetch_snapshot_at(revision, prefer_mirror=prefer_mirror)
 
 
 class ChromiumReleaseClient:

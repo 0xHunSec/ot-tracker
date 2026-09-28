@@ -1,8 +1,10 @@
 import base64
+import os
 import unittest
 import urllib.parse
 from datetime import UTC, datetime
 from pathlib import Path
+from unittest.mock import patch
 
 from ot_tracker.chromium import (
     MANUAL_COMPLETION_PATH,
@@ -10,6 +12,7 @@ from ot_tracker.chromium import (
     RUNTIME_FEATURES_PATH,
     ChromiumReleaseClient,
     ChromiumSnapshot,
+    ChromiumSourceClient,
     GerritClient,
     build_target_index,
     gerrit_ot_signal,
@@ -21,6 +24,7 @@ from ot_tracker.chromium import (
     parse_special_classifications,
 )
 from ot_tracker.config import TargetRule, TrackerConfig, load_config
+from ot_tracker.http import FetchError
 
 
 RUNTIME_FIXTURE = r'''
@@ -78,6 +82,103 @@ class RuntimeParserTest(unittest.TestCase):
         self.assertEqual(
             {"persistent_to_next_response"}, classifications["RealPersistentTrial"]
         )
+
+
+class ChromiumSourceClientTest(unittest.TestCase):
+    def setUp(self) -> None:
+        self.config = TrackerConfig(
+            config_path=Path("config.toml"),
+            database_path=Path("tracker.sqlite3"),
+            reports_dir=Path("reports"),
+            chromium_source_files=(RUNTIME_FEATURES_PATH,),
+        )
+
+    def test_main_snapshot_uses_pinned_mirror_commit(self) -> None:
+        revision = "a" * 40
+
+        class FakeHttp:
+            def __init__(self):
+                self.calls = []
+
+            def get_json(self, url, params=None, *, headers=None):
+                self.calls.append((url, headers))
+                return {"object": {"sha": revision}}
+
+            def get_bytes(self, url, params=None):
+                self.calls.append((url, None))
+                if url == (
+                    f"https://raw.githubusercontent.com/chromium/chromium/"
+                    f"{revision}/{RUNTIME_FEATURES_PATH}"
+                ):
+                    return RUNTIME_FIXTURE.encode()
+                raise AssertionError(f"unexpected source request: {url}")
+
+        http = FakeHttp()
+        with patch.dict(os.environ, {"GH_TOKEN": "test-token"}):
+            snapshot = ChromiumSourceClient(self.config, http).fetch_snapshot()
+        self.assertEqual(revision, snapshot.revision)
+        self.assertEqual(2, len(snapshot.declarations))
+        self.assertEqual({}, snapshot.file_errors)
+        self.assertEqual(
+            (
+                "https://api.github.com/repos/chromium/chromium/git/ref/heads/main",
+                {"Authorization": "Bearer test-token"},
+            ),
+            http.calls[0],
+        )
+        self.assertEqual(2, len(http.calls))
+
+    def test_main_revision_uses_gitiles_when_mirror_is_unavailable(self) -> None:
+        revision = "b" * 40
+
+        class FakeHttp:
+            def get_json(self, url, params=None, *, headers=None):
+                if "api.github.com" in url:
+                    raise FetchError("GitHub unavailable")
+                assert params == {"format": "JSON"}
+                return {"commit": revision}
+
+        self.assertEqual(
+            revision, ChromiumSourceClient(self.config, FakeHttp()).fetch_revision()
+        )
+
+    def test_pinned_release_file_falls_back_to_mirror(self) -> None:
+        revision = "c" * 40
+
+        class FakeHttp:
+            def __init__(self):
+                self.urls = []
+
+            def get_bytes(self, url, params=None):
+                self.urls.append(url)
+                if "chromium.googlesource.com" in url:
+                    raise FetchError("HTTP 503")
+                return RUNTIME_FIXTURE.encode()
+
+        http = FakeHttp()
+        snapshot = ChromiumSourceClient(self.config, http).fetch_snapshot_at(
+            revision, source_files=(RUNTIME_FEATURES_PATH,)
+        )
+        self.assertEqual({}, snapshot.file_errors)
+        self.assertEqual(2, len(snapshot.declarations))
+        self.assertEqual(
+            f"https://raw.githubusercontent.com/chromium/chromium/"
+            f"{revision}/{RUNTIME_FEATURES_PATH}",
+            http.urls[-1],
+        )
+
+    def test_file_is_incomplete_when_both_sources_fail(self) -> None:
+        class FakeHttp:
+            def get_bytes(self, url, params=None):
+                raise FetchError("HTTP 503")
+
+        snapshot = ChromiumSourceClient(self.config, FakeHttp()).fetch_snapshot_at(
+            "d" * 40, source_files=(RUNTIME_FEATURES_PATH,)
+        )
+        error = snapshot.file_errors[RUNTIME_FEATURES_PATH]
+        self.assertIn("Gitiles", error)
+        self.assertIn("GitHub mirror", error)
+        self.assertEqual([], snapshot.declarations)
 
 
 class ChromiumReleaseClientTest(unittest.TestCase):

@@ -34,19 +34,21 @@ class HttpClient:
         self,
         url: str,
         params: Mapping[str, str | int] | None = None,
+        *,
+        headers: Mapping[str, str] | None = None,
     ) -> bytes:
         if params:
             query = urllib.parse.urlencode(params)
             separator = "&" if "?" in url else "?"
             url = f"{url}{separator}{query}"
 
-        request = urllib.request.Request(
-            url,
-            headers={
-                "Accept": "application/json, text/plain, */*",
-                "User-Agent": self.user_agent,
-            },
-        )
+        request_headers = {
+            "Accept": "application/json, text/plain, */*",
+            "User-Agent": self.user_agent,
+        }
+        if headers:
+            request_headers.update(headers)
+        request = urllib.request.Request(url, headers=request_headers)
         last_error: BaseException | None = None
         attempts = max(1, self.retries)
         for attempt in range(attempts):
@@ -68,8 +70,9 @@ class HttpClient:
         params: Mapping[str, str | int] | None = None,
         *,
         xssi: bool = True,
+        headers: Mapping[str, str] | None = None,
     ) -> Any:
-        data = self.get_bytes(url, params=params)
+        data = self.get_bytes(url, params=params, headers=headers)
         if xssi:
             data = strip_xssi_prefix(data)
         try:
