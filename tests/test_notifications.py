@@ -315,7 +315,7 @@ class DiscordNotificationTest(unittest.TestCase):
 
     def test_implementation_digest_stays_within_discord_embed_limits(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
-            config = make_config(directory, implementation_digest_hours=6)
+            config = make_config(directory, implementation_digest_hours=24)
             groups = []
             for group_number in range(6):
                 events = []
@@ -725,19 +725,19 @@ class DiscordNotificationTest(unittest.TestCase):
             return FakeResponse()
 
         with tempfile.TemporaryDirectory() as directory:
-            config = make_config(directory, implementation_digest_hours=6)
+            config = make_config(directory, implementation_digest_hours=24)
             with TrackerDB(config.database_path) as db:
                 first_id = record_implementation_event(
                     db,
                     trial_name="HTMLInCanvas",
                     change_number=101,
-                    observed_at="2026-09-01T17:28:00+00:00",
+                    observed_at="2026-09-01T16:00:00+00:00",
                 )
                 second_id = record_implementation_event(
                     db,
                     trial_name="HTMLInCanvas",
                     change_number=102,
-                    observed_at="2026-09-01T20:00:00+00:00",
+                    observed_at="2026-09-02T11:00:00+00:00",
                 )
                 with patch.dict(
                     os.environ,
@@ -749,14 +749,14 @@ class DiscordNotificationTest(unittest.TestCase):
                         db,
                         opener=opener,
                         sleep=lambda _: None,
-                        now=datetime(2026, 9, 1, 20, 30, tzinfo=UTC),
+                        now=datetime(2026, 9, 2, 12, 30, tzinfo=UTC),
                     )
                     delivered = deliver_discord_pending(
                         config,
                         db,
                         opener=opener,
                         sleep=lambda _: None,
-                        now=datetime(2026, 9, 1, 21, 1, tzinfo=UTC),
+                        now=datetime(2026, 9, 2, 15, 1, tzinfo=UTC),
                     )
 
         self.assertEqual("deferred", waiting.status)
@@ -772,7 +772,7 @@ class DiscordNotificationTest(unittest.TestCase):
             "Chromium OT 구현 변경 요약 · 1개 OT / 2건",
             embed["title"],
         )
-        self.assertIn("KST 기준 6시간 단위", embed["description"])
+        self.assertIn("KST 기준 24시간 단위", embed["description"])
         self.assertIn("HTMLInCanvas · 병합 CL 2건", embed["fields"][0]["name"])
         self.assertIn("[CL 101]", embed["fields"][0]["value"])
         self.assertIn("[CL 102]", embed["fields"][0]["value"])
