@@ -50,6 +50,7 @@ channel_id = ""
 username = "Chrome OT Tracker"
 min_severity = "medium"
 implementation_digest_hours = 24
+medium_digest_hours = 24
 batch_size = 8
 max_batches_per_run = 10
 retries = 3

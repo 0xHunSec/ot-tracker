@@ -231,6 +231,7 @@ def discord_configuration_status(config: TrackerConfig) -> dict[str, Any]:
         "implementation_digest_hours": (
             config.discord.implementation_digest_hours
         ),
+        "medium_digest_hours": config.discord.medium_digest_hours,
     }
     if not config.discord.enabled:
         result["valid"] = True
@@ -847,7 +848,7 @@ def _parse_event_time(value: Any) -> datetime | None:
     return parsed.astimezone(UTC)
 
 
-def _implementation_digest_cutoff(now: datetime, window_hours: int) -> datetime:
+def _digest_cutoff(now: datetime, window_hours: int) -> datetime:
     local_now = now.astimezone(_KST)
     bucket_hour = (local_now.hour // window_hours) * window_hours
     return local_now.replace(
@@ -865,7 +866,7 @@ def _ready_implementation_digest_groups(
     window_hours: int,
 ) -> tuple[list[list[dict[str, Any]]], list[dict[str, Any]]]:
     cutoff = (
-        _implementation_digest_cutoff(now, window_hours)
+        _digest_cutoff(now, window_hours)
         if window_hours > 0
         else now
     )
@@ -885,6 +886,25 @@ def _ready_implementation_digest_groups(
             continue
         groups.setdefault(_event_subject(event), []).append(event)
     return list(groups.values()), deferred
+
+
+def _ready_medium_events(
+    events: list[dict[str, Any]],
+    *,
+    now: datetime,
+    window_hours: int,
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    cutoff = _digest_cutoff(now, window_hours) if window_hours > 0 else now
+    ready: list[dict[str, Any]] = []
+    deferred: list[dict[str, Any]] = []
+    for event in events:
+        observed_at = _parse_event_time(event.get("observed_at"))
+        retry = int(event.get("delivery_attempts") or 0) > 0
+        if window_hours == 0 or retry or observed_at is None or observed_at < cutoff:
+            ready.append(event)
+        else:
+            deferred.append(event)
+    return ready, deferred
 
 
 def _implementation_digest_line(event: dict[str, Any]) -> str:
@@ -977,7 +997,7 @@ def build_discord_implementation_digest_payload(
                 ),
                 "description": (
                     f"{cadence}로 병합된 구현 CL을 OT별로 묶었습니다. "
-                    "OT 등록·마일스톤·계약 변경은 별도로 즉시 알립니다."
+                    "high 변경은 즉시, 그 밖의 medium 변경은 일일 요약으로 알립니다."
                 ),
                 "color": _SEVERITY_COLOR.get(highest, _SEVERITY_COLOR["low"]),
                 "fields": [_implementation_digest_field(group) for group in groups],
@@ -1024,6 +1044,22 @@ def build_discord_event_payload(
     }
     if config.discord.avatar_url:
         payload["avatar_url"] = config.discord.avatar_url
+    return payload
+
+
+def build_discord_medium_digest_payload(
+    config: TrackerConfig, events: list[dict[str, Any]]
+) -> dict[str, Any]:
+    if not events or any(event.get("severity") != "medium" for event in events):
+        raise ValueError("medium digest requires medium events")
+    payload = build_discord_event_payload(config, events)
+    embed = payload["embeds"][0]
+    embed["title"] = f"Chrome Origin Trial 일반 변경 요약 · {len(events)}건"
+    embed["description"] = (
+        f"KST 기준 {config.discord.medium_digest_hours}시간 동안 모은 medium 변경입니다. "
+        "high 변경은 즉시 알립니다.\n"
+        + embed["description"]
+    )
     return payload
 
 
@@ -1308,21 +1344,32 @@ def deliver_discord_pending(
         min_severity=config.discord.min_severity,
         limit=max(1, pending_before),
     )
+    immediate_events = [
+        event for event in events if event.get("severity") != "medium"
+    ]
+    medium_events = [
+        event
+        for event in events
+        if event.get("severity") == "medium"
+        and event.get("category") != _IMPLEMENTATION_CHANGE_CATEGORY
+    ]
     implementation_events = [
         event
         for event in events
-        if event.get("category") == _IMPLEMENTATION_CHANGE_CATEGORY
+        if event.get("severity") == "medium"
+        and event.get("category") == _IMPLEMENTATION_CHANGE_CATEGORY
     ]
-    immediate_events = [
-        event
-        for event in events
-        if event.get("category") != _IMPLEMENTATION_CHANGE_CATEGORY
-    ]
+    ready_medium_events, deferred_medium_events = _ready_medium_events(
+        medium_events,
+        now=now,
+        window_hours=config.discord.medium_digest_hours,
+    )
     digest_groups, deferred_events = _ready_implementation_digest_groups(
         implementation_events,
         now=now,
         window_hours=config.discord.implementation_digest_hours,
     )
+    deferred_events.extend(deferred_medium_events)
 
     plans: list[tuple[list[int], dict[str, Any]]] = []
     for offset in range(0, len(immediate_events), config.discord.batch_size):
@@ -1331,6 +1378,18 @@ def deliver_discord_pending(
             (
                 [int(event["id"]) for event in batch],
                 build_discord_event_payload(config, batch),
+            )
+        )
+    for offset in range(0, len(ready_medium_events), config.discord.batch_size):
+        batch = ready_medium_events[offset : offset + config.discord.batch_size]
+        plans.append(
+            (
+                [int(event["id"]) for event in batch],
+                (
+                    build_discord_medium_digest_payload(config, batch)
+                    if config.discord.medium_digest_hours > 0
+                    else build_discord_event_payload(config, batch)
+                ),
             )
         )
     digest_batch_size = min(

@@ -36,15 +36,16 @@ baseline 자체는 변경 알림 대상에서 제외한다.
 | Chrome Status feature | 추적 시작·재개, 플랫폼별 OT stage milestone, Chromium trial code/ID, feature 정보 변경 |
 | Chromium `main` | RuntimeEnabledFeature OT 선언의 추가·복원·제거, trial code 연결과 OT 계약 변경 |
 | Stable·Beta | 최신 Linux 배포 revision에서 OT 선언이 추가·복원·제거되거나 계약이 바뀐 경우 |
-| 병합된 Chromium 코드 | 활성 OT의 이름·runtime alias·구현 경로와 일치하는 Gerrit CL은 하루 1회 요약, 공통 OT framework 변경은 즉시 알림 |
+| 병합된 Chromium 코드 | 활성 OT의 이름·runtime alias·구현 경로와 일치하는 Gerrit CL은 하루 1회 요약. 공통 OT framework 변경도 `medium`이면 일일 요약 |
 | 공식 등록 전 후보 | Chromium `main` 또는 병합된 CL에서 찾은 미등록 OT 선언, 후보 근거 변경·복원·제거, 이후 공식 등록 여부 |
 | 추적 공백 | 활성 OT의 Chromium 선언·구현 경로 누락, Chrome Status와 Chromium 사이의 OT 계약 불일치 및 복구 |
 | 운영 상태 | 수집원 장애·복구, GitHub Actions 실패, 24시간 heartbeat |
 
-일반 구현 변경은 KST 기준 `00:00–24:00` 하루 동안 모은다.
-날짜가 바뀐 뒤 첫 실행에서 병합 CL을 OT별로 묶어 보낸다. 신규 OT,
-마일스톤, OT 선언·계약, 공식 등록 전 후보, 수집 장애는 이 요약을 기다리지 않고
-즉시 전송한다.
+`medium` 변경은 KST 기준 `00:00–24:00` 하루 동안 모은다.
+날짜가 바뀐 뒤 첫 실행에서 일반 변경은 한 번에 묶고, 병합 CL은 OT별로 묶어 보낸다.
+메시지 크기 제한 때문에 일일 요약은 여러 메시지로 나뉠 수 있다.
+`high` 변경은 발견 즉시 전송한다. 수집 실패와 GitHub Actions 실패 알림도
+기존처럼 즉시 전송한다. 정상 작동 heartbeat는 24시간마다 별도로 보낸다.
 
 Stable·Beta 비교에서는 선언의 줄 번호와 원문 조각처럼 코드 위치만 달라진 값은
 알림에서 제외한다. 같은 OT에 연결된 여러 RuntimeEnabledFeature의 계약이 똑같이
@@ -123,7 +124,7 @@ Chrome Status의 `updated` 감사 시각처럼 기능 내용과 무관한 갱신
 미병합 CL은 근거 강도와 관계없이 `low`로 기록한다. DB와 리포트에는 남지만,
 기본값인 `min_severity = "medium"`에서는 Discord로 보내지 않는다. CL이 병합된 뒤
 활성 OT 구현과 연결되면 하루 1회 요약에 포함하고, 공식 등록 전 후보와 연결되면
-`medium` 이상 이벤트로 즉시 알린다.
+`medium`이면 일일 요약, `high`이면 즉시 알린다.
 
 Gerrit 후보는 참고용이다. 출시 확정이나 보안 취약점을 뜻하지 않으며, 최종 판단
 전에는 연결된 CL과 patch를 직접 확인해야 한다.
@@ -143,7 +144,7 @@ flowchart LR
     D --> E
 
     E --> F[정규화 후 SQLite 스냅샷 비교<br/>중복 제거와 이벤트 생성]
-    F --> G[중요 변경 즉시 알림<br/>일반 구현 CL 하루 1회 요약]
+    F --> G[high 변경 즉시 알림<br/>medium 변경 하루 1회 요약]
     F --> H[Markdown / JSON 리포트]
     F --> I[low 이벤트·미전송 큐<br/>후보 판정 보존]
 ```
@@ -155,8 +156,8 @@ GitHub Actions에서 한 번 실행될 때 처리 순서는 다음과 같다.
    수집한다.
 3. 출처마다 다른 응답을 비교 가능한 OT·feature·코드 선언 형태로 정규화한다.
 4. 새 결과를 SQLite의 직전 스냅샷과 비교해 신규·변경·제거·복구 이벤트를 만든다.
-5. 이벤트 키로 중복을 제거한다. `medium` 이상 중요 변경은 Discord 미전송 큐에서
-   바로 보내고, 일반 구현 CL은 지난 KST 날짜의 이벤트를 OT별로 묶어 보낸다.
+5. 이벤트 키로 중복을 제거한다. `high` 변경은 바로 보내고, `medium` 변경은
+   지난 KST 날짜의 이벤트를 묶어 보낸다. 일반 구현 CL은 OT별로 묶는다.
 6. `reports/latest.md`와 `reports/latest.json`을 갱신하고, 24시간이 지났으면
    heartbeat를 보낸다.
 7. 갱신된 SQLite를 암호화해 Release 자산과 최근 7일 일별 백업에 저장한다.
@@ -293,6 +294,7 @@ channel_id_env = "DISCORD_CHANNEL_ID"
 channel_id = "123456789012345678"
 min_severity = "medium"
 implementation_digest_hours = 24
+medium_digest_hours = 24
 ```
 
 ```bash
@@ -311,7 +313,7 @@ Incoming Webhook을 쓰려면 `transport = "webhook"`으로 바꾸고
   한 번 더 전송될 수 있다.
 - 일반 메시지는 이벤트를 최대 8개까지 묶는다. 구현 변경 요약은 메시지 하나에
   OT를 최대 6개까지 싣고, OT별 주요 CL 링크와 추가 건수를 표시한다.
-- 구현 변경이 요약 시각을 기다리는 동안에는 `status`의 미전송 수에 포함될 수
+- `medium` 변경이 요약 시각을 기다리는 동안에는 `status`의 미전송 수에 포함될 수
   있다. 전송 실패가 아니라 의도된 대기 상태다.
 - 알림 시각은 `YYYY-MM-DD HH:MM KST` 형식으로 표시한다. 내부 데이터는 UTC로
   저장한다.
@@ -335,6 +337,7 @@ Incoming Webhook을 쓰려면 `transport = "webhook"`으로 바꾸고
 | 실행 경로 | `track.yml`의 `workflow_dispatch` |
 | 중복 방지 | 공통 concurrency group과 SQLite 이벤트 키 |
 | 구현 변경 요약 | KST 기준 하루 1회, OT별 병합 CL 묶음 |
+| 그 밖의 medium 요약 | KST 기준 하루 1회, 변경 이벤트 묶음 |
 | 상태 백업 | `tracker-state` Release의 암호화된 자산과 최근 7일 일별 백업 |
 
 공개 저장소의 표준 GitHub-hosted runner는 실행 시간 요금이 없다.
@@ -411,8 +414,9 @@ CL에서 얻은 경로는 후보로만 보관하며, CL 병합 후 신뢰도 점
 <details>
 <summary>이벤트 이름과 의미 펼쳐보기</summary>
 
-`기본 Discord`는 `min_severity = "medium"`일 때의 동작이다. 근거에 따라 등급이
-달라지는 이벤트는 `조건부`로 표시했다.
+`기본 Discord`는 `min_severity = "medium"`일 때의 전송 여부다. `medium`은
+일일 요약, `high`는 즉시 전송한다. 근거에 따라 등급이 달라지는 이벤트는
+`조건부`로 표시했다.
 
 ### 공식 OT와 Chrome Status
 

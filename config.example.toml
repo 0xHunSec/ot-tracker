@@ -55,6 +55,8 @@ username = "Chrome OT Tracker"
 min_severity = "medium"
 # Merge implementation CLs into one fixed KST day (00:00–24:00).
 implementation_digest_hours = 24
+# Merge all other medium events into the same fixed KST day.
+medium_digest_hours = 24
 batch_size = 8
 max_batches_per_run = 10
 retries = 3

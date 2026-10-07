@@ -71,6 +71,7 @@ def record_event(
     severity: str,
     key: str,
     category: str = "official_ot.registered",
+    observed_at: str | None = None,
 ) -> int:
     run_id = db.begin_run(baseline=baseline)
     db.begin_changes()
@@ -83,6 +84,7 @@ def record_event(
         entity_key=key,
         new={"display_name": f"Trial {key}", "trial_name": f"Trial{key}"},
         evidence={"chromestatus_url": f"https://chromestatus.com/feature/{key}"},
+        observed_at=observed_at,
     )
     assert created
     db.commit_changes()
@@ -96,6 +98,7 @@ def record_implementation_event(
     trial_name: str,
     change_number: int,
     observed_at: str,
+    severity: str = "medium",
 ) -> int:
     run_id = db.begin_run(baseline=False)
     db.begin_changes()
@@ -116,7 +119,7 @@ def record_implementation_event(
     created = db.record_event(
         run_id,
         category="chromium.implementation_changed",
-        severity="medium",
+        severity=severity,
         source="gerrit",
         entity_kind="ot_code_change",
         entity_key=f"{change_number}:{trial_name}",
@@ -827,6 +830,165 @@ class DiscordNotificationTest(unittest.TestCase):
         body = json.loads(requests[0][0].data.decode("utf-8"))
         self.assertEqual("Chrome Origin Trial 변경 1건", body["embeds"][0]["title"])
         self.assertIn("신규 공개 OT 등록", body["embeds"][0]["description"])
+
+    def test_medium_events_wait_for_one_kst_daily_summary(self) -> None:
+        requests = []
+
+        def opener(request, timeout):
+            requests.append(request)
+            return FakeResponse()
+
+        with tempfile.TemporaryDirectory() as directory:
+            config = make_config(directory, medium_digest_hours=24)
+            with TrackerDB(config.database_path) as db:
+                first_id = record_event(
+                    db,
+                    baseline=False,
+                    severity="medium",
+                    key="metadata-a",
+                    category="chromestatus.feature_metadata_changed",
+                    observed_at="2026-09-01T16:00:00+00:00",
+                )
+                second_id = record_event(
+                    db,
+                    baseline=False,
+                    severity="medium",
+                    key="metadata-b",
+                    category="chromestatus.feature_metadata_changed",
+                    observed_at="2026-09-02T11:00:00+00:00",
+                )
+                high_id = record_event(
+                    db,
+                    baseline=False,
+                    severity="high",
+                    key="important",
+                    observed_at="2026-09-02T12:00:00+00:00",
+                )
+                with patch.dict(
+                    os.environ, {config.discord.webhook_env: WEBHOOK}, clear=True
+                ):
+                    waiting = deliver_discord_pending(
+                        config,
+                        db,
+                        opener=opener,
+                        sleep=lambda _: None,
+                        now=datetime(2026, 9, 2, 12, 30, tzinfo=UTC),
+                    )
+                    delivered = deliver_discord_pending(
+                        config,
+                        db,
+                        opener=opener,
+                        sleep=lambda _: None,
+                        now=datetime(2026, 9, 2, 15, 1, tzinfo=UTC),
+                    )
+                    duplicate = deliver_discord_pending(
+                        config,
+                        db,
+                        opener=opener,
+                        sleep=lambda _: None,
+                        now=datetime(2026, 9, 2, 15, 30, tzinfo=UTC),
+                    )
+
+        self.assertEqual("deferred", waiting.status)
+        self.assertEqual(1, waiting.sent)
+        self.assertEqual(2, waiting.pending_after)
+        self.assertEqual("sent", delivered.status)
+        self.assertEqual(2, delivered.sent)
+        self.assertEqual(0, delivered.pending_after)
+        self.assertEqual("idle", duplicate.status)
+        self.assertEqual(2, len(requests))
+        high_payload = json.loads(requests[0].data.decode("utf-8"))
+        medium_payload = json.loads(requests[1].data.decode("utf-8"))
+        self.assertEqual("Chrome Origin Trial 변경 1건", high_payload["embeds"][0]["title"])
+        self.assertEqual("Chrome Origin Trial 일반 변경 요약 · 2건", medium_payload["embeds"][0]["title"])
+        self.assertEqual(0xF1C40F, medium_payload["embeds"][0]["color"])
+        self.assertIn("KST 기준 24시간", medium_payload["embeds"][0]["description"])
+        self.assertIn(f"event #{first_id}", medium_payload["embeds"][0]["fields"][0]["value"])
+        self.assertIn(f"event #{second_id}", medium_payload["embeds"][0]["fields"][1]["value"])
+        self.assertNotIn(f"event #{high_id}", medium_payload["embeds"][0]["footer"]["text"])
+
+    def test_high_implementation_event_is_immediate(self) -> None:
+        requests = []
+
+        def opener(request, timeout):
+            requests.append(request)
+            return FakeResponse()
+
+        with tempfile.TemporaryDirectory() as directory:
+            config = make_config(directory)
+            with TrackerDB(config.database_path) as db:
+                record_implementation_event(
+                    db,
+                    trial_name="HTMLInCanvas",
+                    change_number=401,
+                    observed_at="2026-09-02T11:00:00+00:00",
+                    severity="high",
+                )
+                with patch.dict(
+                    os.environ, {config.discord.webhook_env: WEBHOOK}, clear=True
+                ):
+                    result = deliver_discord_pending(
+                        config,
+                        db,
+                        opener=opener,
+                        sleep=lambda _: None,
+                        now=datetime(2026, 9, 2, 12, 30, tzinfo=UTC),
+                    )
+        self.assertEqual("sent", result.status)
+        self.assertEqual(1, result.sent)
+        self.assertEqual(1, len(requests))
+        payload = json.loads(requests[0].data.decode("utf-8"))
+        self.assertEqual("Chrome Origin Trial 변경 1건", payload["embeds"][0]["title"])
+
+    def test_failed_medium_digest_remains_pending_for_retry(self) -> None:
+        requests = []
+
+        def opener(request, timeout):
+            requests.append(request)
+            if len(requests) == 1:
+                raise urllib.error.HTTPError(
+                    WEBHOOK, 503, "unavailable", {}, io.BytesIO(b"")
+                )
+            return FakeResponse()
+
+        with tempfile.TemporaryDirectory() as directory:
+            config = make_config(directory, medium_digest_hours=24, retries=1)
+            with TrackerDB(config.database_path) as db:
+                record_event(
+                    db,
+                    baseline=False,
+                    severity="medium",
+                    key="retry-me",
+                    category="chromestatus.feature_metadata_changed",
+                    observed_at="2026-09-02T11:00:00+00:00",
+                )
+                with patch.dict(
+                    os.environ, {config.discord.webhook_env: WEBHOOK}, clear=True
+                ):
+                    failed = deliver_discord_pending(
+                        config,
+                        db,
+                        opener=opener,
+                        sleep=lambda _: None,
+                        now=datetime(2026, 9, 2, 15, 1, tzinfo=UTC),
+                    )
+                    recovered = deliver_discord_pending(
+                        config,
+                        db,
+                        opener=opener,
+                        sleep=lambda _: None,
+                        now=datetime(2026, 9, 2, 15, 30, tzinfo=UTC),
+                    )
+                summary = db.notification_summary(
+                    channel=DISCORD_CHANNEL, min_severity="medium"
+                )
+        self.assertEqual("failed", failed.status)
+        self.assertEqual(1, failed.pending_after)
+        self.assertEqual("sent", recovered.status)
+        self.assertEqual(0, recovered.pending_after)
+        self.assertEqual(1, summary["sent"])
+        self.assertEqual(2, summary["attempts"])
+        self.assertEqual(2, len(requests))
 
     def test_successful_delivery_marks_event_sent(self) -> None:
         requests = []
