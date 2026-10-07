@@ -752,19 +752,29 @@ class DiscordNotificationTest(unittest.TestCase):
                         db,
                         opener=opener,
                         sleep=lambda _: None,
-                        now=datetime(2026, 9, 2, 12, 30, tzinfo=UTC),
+                        now=datetime(2026, 9, 2, 14, 0, tzinfo=UTC),
+                    )
+                    before_digest_hour = deliver_discord_pending(
+                        config,
+                        db,
+                        opener=opener,
+                        sleep=lambda _: None,
+                        now=datetime(2026, 9, 3, 1, 59, tzinfo=UTC),
                     )
                     delivered = deliver_discord_pending(
                         config,
                         db,
                         opener=opener,
                         sleep=lambda _: None,
-                        now=datetime(2026, 9, 2, 15, 1, tzinfo=UTC),
+                        now=datetime(2026, 9, 3, 2, 0, tzinfo=UTC),
                     )
 
         self.assertEqual("deferred", waiting.status)
         self.assertEqual(0, waiting.sent)
         self.assertEqual(2, waiting.pending_after)
+        self.assertEqual("deferred", before_digest_hour.status)
+        self.assertEqual(0, before_digest_hour.sent)
+        self.assertEqual(2, before_digest_hour.pending_after)
         self.assertEqual("sent", delivered.status)
         self.assertEqual(2, delivered.sent)
         self.assertEqual(0, delivered.pending_after)
@@ -775,7 +785,7 @@ class DiscordNotificationTest(unittest.TestCase):
             "Chromium OT 구현 변경 요약 · 1개 OT / 2건",
             embed["title"],
         )
-        self.assertIn("KST 기준 24시간 단위", embed["description"])
+        self.assertIn("KST 11:00 기준 24시간 단위", embed["description"])
         self.assertIn("HTMLInCanvas · 병합 CL 2건", embed["fields"][0]["name"])
         self.assertIn("[CL 101]", embed["fields"][0]["value"])
         self.assertIn("[CL 102]", embed["fields"][0]["value"])
@@ -872,26 +882,36 @@ class DiscordNotificationTest(unittest.TestCase):
                         db,
                         opener=opener,
                         sleep=lambda _: None,
-                        now=datetime(2026, 9, 2, 12, 30, tzinfo=UTC),
+                        now=datetime(2026, 9, 2, 14, 0, tzinfo=UTC),
+                    )
+                    before_digest_hour = deliver_discord_pending(
+                        config,
+                        db,
+                        opener=opener,
+                        sleep=lambda _: None,
+                        now=datetime(2026, 9, 3, 1, 59, tzinfo=UTC),
                     )
                     delivered = deliver_discord_pending(
                         config,
                         db,
                         opener=opener,
                         sleep=lambda _: None,
-                        now=datetime(2026, 9, 2, 15, 1, tzinfo=UTC),
+                        now=datetime(2026, 9, 3, 2, 0, tzinfo=UTC),
                     )
                     duplicate = deliver_discord_pending(
                         config,
                         db,
                         opener=opener,
                         sleep=lambda _: None,
-                        now=datetime(2026, 9, 2, 15, 30, tzinfo=UTC),
+                        now=datetime(2026, 9, 3, 2, 30, tzinfo=UTC),
                     )
 
         self.assertEqual("deferred", waiting.status)
         self.assertEqual(1, waiting.sent)
         self.assertEqual(2, waiting.pending_after)
+        self.assertEqual("deferred", before_digest_hour.status)
+        self.assertEqual(0, before_digest_hour.sent)
+        self.assertEqual(2, before_digest_hour.pending_after)
         self.assertEqual("sent", delivered.status)
         self.assertEqual(2, delivered.sent)
         self.assertEqual(0, delivered.pending_after)
@@ -902,7 +922,7 @@ class DiscordNotificationTest(unittest.TestCase):
         self.assertEqual("Chrome Origin Trial 변경 1건", high_payload["embeds"][0]["title"])
         self.assertEqual("Chrome Origin Trial 일반 변경 요약 · 2건", medium_payload["embeds"][0]["title"])
         self.assertEqual(0xF1C40F, medium_payload["embeds"][0]["color"])
-        self.assertIn("KST 기준 24시간", medium_payload["embeds"][0]["description"])
+        self.assertIn("KST 11:00 기준 24시간", medium_payload["embeds"][0]["description"])
         self.assertIn(f"event #{first_id}", medium_payload["embeds"][0]["fields"][0]["value"])
         self.assertIn(f"event #{second_id}", medium_payload["embeds"][0]["fields"][1]["value"])
         self.assertNotIn(f"event #{high_id}", medium_payload["embeds"][0]["footer"]["text"])
@@ -970,14 +990,14 @@ class DiscordNotificationTest(unittest.TestCase):
                         db,
                         opener=opener,
                         sleep=lambda _: None,
-                        now=datetime(2026, 9, 2, 15, 1, tzinfo=UTC),
+                        now=datetime(2026, 9, 3, 2, 0, tzinfo=UTC),
                     )
                     recovered = deliver_discord_pending(
                         config,
                         db,
                         opener=opener,
                         sleep=lambda _: None,
-                        now=datetime(2026, 9, 2, 15, 30, tzinfo=UTC),
+                        now=datetime(2026, 9, 3, 3, 0, tzinfo=UTC),
                     )
                 summary = db.notification_summary(
                     channel=DISCORD_CHANNEL, min_severity="medium"

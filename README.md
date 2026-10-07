@@ -41,8 +41,8 @@ baseline 자체는 변경 알림 대상에서 제외한다.
 | 추적 공백 | 활성 OT의 Chromium 선언·구현 경로 누락, Chrome Status와 Chromium 사이의 OT 계약 불일치 및 복구 |
 | 운영 상태 | 수집원 장애·복구, GitHub Actions 실패, 24시간 heartbeat |
 
-`medium` 변경은 KST 기준 `00:00–24:00` 하루 동안 모은다.
-날짜가 바뀐 뒤 첫 실행에서 일반 변경은 한 번에 묶고, 병합 CL은 OT별로 묶어 보낸다.
+`medium` 변경은 KST 기준 매일 오전 11:00부터 다음 날 오전 11:00까지 모은다.
+오전 11시대 첫 수집에서 일반 변경은 한 번에 묶고, 병합 CL은 OT별로 묶어 보낸다.
 메시지 크기 제한 때문에 일일 요약은 여러 메시지로 나뉠 수 있다.
 `high` 변경은 발견 즉시 전송한다. 수집 실패와 GitHub Actions 실패 알림도
 기존처럼 즉시 전송한다. 정상 작동 heartbeat는 24시간마다 별도로 보낸다.
@@ -157,7 +157,7 @@ GitHub Actions에서 한 번 실행될 때 처리 순서는 다음과 같다.
 3. 출처마다 다른 응답을 비교 가능한 OT·feature·코드 선언 형태로 정규화한다.
 4. 새 결과를 SQLite의 직전 스냅샷과 비교해 신규·변경·제거·복구 이벤트를 만든다.
 5. 이벤트 키로 중복을 제거한다. `high` 변경은 바로 보내고, `medium` 변경은
-   지난 KST 날짜의 이벤트를 묶어 보낸다. 일반 구현 CL은 OT별로 묶는다.
+   오전 11:00에 마감한 KST 하루의 이벤트를 묶어 보낸다. 일반 구현 CL은 OT별로 묶는다.
 6. `reports/latest.md`와 `reports/latest.json`을 갱신하고, 24시간이 지났으면
    heartbeat를 보낸다.
 7. 갱신된 SQLite를 암호화해 Release 자산과 최근 7일 일별 백업에 저장한다.
@@ -295,6 +295,7 @@ channel_id = "123456789012345678"
 min_severity = "medium"
 implementation_digest_hours = 24
 medium_digest_hours = 24
+digest_hour_kst = 11
 ```
 
 ```bash
@@ -336,8 +337,8 @@ Incoming Webhook을 쓰려면 `transport = "webhook"`으로 바꾸고
 | 주 스케줄러 | GitHub Actions, 매시 `:17`·`:47` |
 | 실행 경로 | `track.yml`의 `workflow_dispatch` |
 | 중복 방지 | 공통 concurrency group과 SQLite 이벤트 키 |
-| 구현 변경 요약 | KST 기준 하루 1회, OT별 병합 CL 묶음 |
-| 그 밖의 medium 요약 | KST 기준 하루 1회, 변경 이벤트 묶음 |
+| 구현 변경 요약 | KST 오전 11시대 하루 1회, OT별 병합 CL 묶음 |
+| 그 밖의 medium 요약 | KST 오전 11시대 하루 1회, 변경 이벤트 묶음 |
 | 상태 백업 | `tracker-state` Release의 암호화된 자산과 최근 7일 일별 백업 |
 
 공개 저장소의 표준 GitHub-hosted runner는 실행 시간 요금이 없다.

@@ -43,6 +43,7 @@ class DiscordConfig:
     min_severity: str = "medium"
     implementation_digest_hours: int = 24
     medium_digest_hours: int = 24
+    digest_hour_kst: int = 11
     batch_size: int = 8
     max_batches_per_run: int = 10
     retries: int = 3
@@ -241,6 +242,7 @@ def load_config(path: str | Path) -> TrackerConfig:
             medium_digest_hours=min(
                 24, max(0, int(discord.get("medium_digest_hours", 24)))
             ),
+            digest_hour_kst=min(23, max(0, int(discord.get("digest_hour_kst", 11)))),
             batch_size=min(8, max(1, int(discord.get("batch_size", 8)))),
             max_batches_per_run=max(
                 1, int(discord.get("max_batches_per_run", 10))

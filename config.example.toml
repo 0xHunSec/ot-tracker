@@ -53,10 +53,11 @@ channel_id = "123456789012345678"
 webhook_env = "OT_TRACKER_DISCORD_WEBHOOK_URL"
 username = "Chrome OT Tracker"
 min_severity = "medium"
-# Merge implementation CLs into one fixed KST day (00:00–24:00).
+# Merge implementation CLs into one KST 11:00–11:00 day.
 implementation_digest_hours = 24
-# Merge all other medium events into the same fixed KST day.
+# Merge all other medium events into the same KST day.
 medium_digest_hours = 24
+digest_hour_kst = 11
 batch_size = 8
 max_batches_per_run = 10
 retries = 3

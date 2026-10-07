@@ -232,6 +232,7 @@ def discord_configuration_status(config: TrackerConfig) -> dict[str, Any]:
             config.discord.implementation_digest_hours
         ),
         "medium_digest_hours": config.discord.medium_digest_hours,
+        "digest_hour_kst": config.discord.digest_hour_kst,
     }
     if not config.discord.enabled:
         result["valid"] = True
@@ -848,15 +849,39 @@ def _parse_event_time(value: Any) -> datetime | None:
     return parsed.astimezone(UTC)
 
 
-def _digest_cutoff(now: datetime, window_hours: int) -> datetime:
+def _digest_cutoff(
+    now: datetime, window_hours: int, digest_hour_kst: int
+) -> datetime:
     local_now = now.astimezone(_KST)
-    bucket_hour = (local_now.hour // window_hours) * window_hours
-    return local_now.replace(
-        hour=bucket_hour,
+    anchor = local_now.replace(
+        hour=digest_hour_kst,
         minute=0,
         second=0,
         microsecond=0,
-    ).astimezone(UTC)
+    )
+    if local_now < anchor:
+        anchor -= timedelta(days=1)
+    completed_hours = int((local_now - anchor).total_seconds() // 3600)
+    bucket_hours = (completed_hours // window_hours) * window_hours
+    return (anchor + timedelta(hours=bucket_hours)).astimezone(UTC)
+
+
+def _digest_event_ready(
+    event: dict[str, Any],
+    *,
+    now: datetime,
+    cutoff: datetime,
+    window_hours: int,
+    digest_hour_kst: int,
+) -> bool:
+    if int(event.get("delivery_attempts") or 0) > 0 or window_hours == 0:
+        return True
+    # A daily digest only starts during its scheduled KST hour. This also keeps
+    # older queued events from flooding the channel after a schedule change.
+    if window_hours == 24 and now.astimezone(_KST).hour != digest_hour_kst:
+        return False
+    observed_at = _parse_event_time(event.get("observed_at"))
+    return observed_at is None or observed_at < cutoff
 
 
 def _ready_implementation_digest_groups(
@@ -864,22 +889,22 @@ def _ready_implementation_digest_groups(
     *,
     now: datetime,
     window_hours: int,
+    digest_hour_kst: int,
 ) -> tuple[list[list[dict[str, Any]]], list[dict[str, Any]]]:
     cutoff = (
-        _digest_cutoff(now, window_hours)
+        _digest_cutoff(now, window_hours, digest_hour_kst)
         if window_hours > 0
         else now
     )
     groups: dict[str, list[dict[str, Any]]] = {}
     deferred: list[dict[str, Any]] = []
     for event in events:
-        observed_at = _parse_event_time(event.get("observed_at"))
-        retry = int(event.get("delivery_attempts") or 0) > 0
-        ready = (
-            window_hours == 0
-            or retry
-            or observed_at is None
-            or observed_at < cutoff
+        ready = _digest_event_ready(
+            event,
+            now=now,
+            cutoff=cutoff,
+            window_hours=window_hours,
+            digest_hour_kst=digest_hour_kst,
         )
         if not ready:
             deferred.append(event)
@@ -893,14 +918,23 @@ def _ready_medium_events(
     *,
     now: datetime,
     window_hours: int,
+    digest_hour_kst: int,
 ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
-    cutoff = _digest_cutoff(now, window_hours) if window_hours > 0 else now
+    cutoff = (
+        _digest_cutoff(now, window_hours, digest_hour_kst)
+        if window_hours > 0
+        else now
+    )
     ready: list[dict[str, Any]] = []
     deferred: list[dict[str, Any]] = []
     for event in events:
-        observed_at = _parse_event_time(event.get("observed_at"))
-        retry = int(event.get("delivery_attempts") or 0) > 0
-        if window_hours == 0 or retry or observed_at is None or observed_at < cutoff:
+        if _digest_event_ready(
+            event,
+            now=now,
+            cutoff=cutoff,
+            window_hours=window_hours,
+            digest_hour_kst=digest_hour_kst,
+        ):
             ready.append(event)
         else:
             deferred.append(event)
@@ -982,7 +1016,7 @@ def build_discord_implementation_digest_payload(
     )
     window_hours = config.discord.implementation_digest_hours
     cadence = (
-        f"KST 기준 {window_hours}시간 단위"
+        f"KST {config.discord.digest_hour_kst:02d}:00 기준 {window_hours}시간 단위"
         if window_hours > 0
         else "현재 실행 단위"
     )
@@ -1056,7 +1090,8 @@ def build_discord_medium_digest_payload(
     embed = payload["embeds"][0]
     embed["title"] = f"Chrome Origin Trial 일반 변경 요약 · {len(events)}건"
     embed["description"] = (
-        f"KST 기준 {config.discord.medium_digest_hours}시간 동안 모은 medium 변경입니다. "
+        f"KST {config.discord.digest_hour_kst:02d}:00 기준 "
+        f"{config.discord.medium_digest_hours}시간 동안 모은 medium 변경입니다. "
         "high 변경은 즉시 알립니다.\n"
         + embed["description"]
     )
@@ -1363,11 +1398,13 @@ def deliver_discord_pending(
         medium_events,
         now=now,
         window_hours=config.discord.medium_digest_hours,
+        digest_hour_kst=config.discord.digest_hour_kst,
     )
     digest_groups, deferred_events = _ready_implementation_digest_groups(
         implementation_events,
         now=now,
         window_hours=config.discord.implementation_digest_hours,
+        digest_hour_kst=config.discord.digest_hour_kst,
     )
     deferred_events.extend(deferred_medium_events)
 
